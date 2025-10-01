@@ -9,19 +9,21 @@ use winit::{event_loop::EventLoop};
 
 
 fn main() -> Result<(), impl Error>{
-    static GRAPHICS_CLOSED: AtomicBool = AtomicBool::new(false);
+    let graphics_closed: AtomicBool = AtomicBool::new(false);
+    let mut result = Ok(());
 
-    let game_thread = thread::spawn(move || {
-        let game = crate::world::GameSystems::new();
-        while !GRAPHICS_CLOSED.load(Relaxed) && game.world().progress() {}
+    thread::scope(|s| {
+        s.spawn(|| {
+            let game = crate::world::GameSystems::new();
+            while !graphics_closed.load(Relaxed) && game.world().progress() {}
+            println!("closing")
+        });
+
+        let event_loop = EventLoop::new().unwrap();
+        let mut app = crate::graphics::GraphicsDisplay::new(&event_loop);
+        result = event_loop.run_app(&mut app);
+        graphics_closed.store(true, Relaxed);
     });
 
-    let event_loop = EventLoop::new().unwrap();
-    let mut app = crate::graphics::GraphicsDisplay::new(&event_loop);
-    let result = event_loop.run_app(&mut app);
-
-    GRAPHICS_CLOSED.store(true, Relaxed);
-
-    let _ = game_thread.join();
     result
 }
