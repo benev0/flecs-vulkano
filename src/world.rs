@@ -21,7 +21,6 @@ struct Sprite;
 pub struct GameSystems {
     world: World,
     services: ServiceManager,
-    // todo add IOC/services
 }
 
 impl GameSystems {
@@ -101,7 +100,7 @@ impl ServiceManager {
         self.services
             .write()
             .expect("service manager poisoned")
-            .insert(dbg!(TypeId::of::<T>()), ds);
+            .insert(TypeId::of::<T>(), ds);
     }
 
     pub fn post_init_service<T: Service>(&mut self) {
@@ -120,22 +119,11 @@ impl ServiceManager {
             .write()
             .expect("service manager poisoned");
 
-        println!("hello1");
         binding
-            .get(dbg!(&TypeId::of::<T>()))
+            .get(&TypeId::of::<T>())
             .and_then(|service| {
-                println!("hello2");
                 let s = service.clone();
-                dbg!(std::any::type_name_of_val(&s));
-                match Arc::downcast::<RwLock<Box<T>>>(s) {
-                    Ok(c) => {
-                        Some(dbg!(c))
-                    },
-                    Err(c) => {
-                        dbg!(c);
-                        None
-                    },
-                }
+                Arc::downcast::<RwLock<Box<T>>>(s).ok()
             })
     }
 }
@@ -154,7 +142,6 @@ impl ExampleService {
 
 impl Service for ExampleService {
     fn init() -> Self where Self: Sized {
-        println!("create");
         Self { frame: AtomicUsize::new(0) }
     }
 
