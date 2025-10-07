@@ -1,5 +1,6 @@
 use flecs_ecs::prelude::*;
-use std::{any::{Any, TypeId}, collections::HashMap, fmt::Debug, sync::{atomic::AtomicUsize, mpsc::Sender, Arc, RwLock}};
+use vulkano::pipeline::graphics;
+use std::{any::{Any, TypeId}, collections::HashMap, fmt::Debug, mem, sync::{atomic::{AtomicBool, AtomicUsize}, mpsc::Sender, Arc, Mutex, RwLock}};
 // todo: build basic systems here
 
 #[derive(Component)]
@@ -30,6 +31,7 @@ impl GameSystems {
         // init ioc/services
         let mut services = ServiceManager::new();
         services.init_service::<ExampleService>();
+        services.init_service::<GraphicsService<()>>();
 
         // create systems
         world
@@ -43,17 +45,43 @@ impl GameSystems {
         let ex_service = services.get_service::<ExampleService>().unwrap();
         world
             .system_named::<()>("run count")
-            .each_iter(move |_, _, _| {
+            .run(move |_| {
                 let binding = ex_service.read().unwrap();
                 let count = binding.count();
                 println!("frame: {}", count);
             });
 
-        // register default entity
+        let graphics_service = services.get_service::<GraphicsService<()>>().unwrap();
+        world
+            .system_named::<(&Position, &Sprite)>("graphic prep")
+            .run(move |mut it| {
+                // create or open new buffer
+
+                while it.next() {
+                    // g
+                    let pos = it.field::<&Position>(0).unwrap(); //at index 0 in (&Position, &Sprite)
+                    for i in it.iter() {
+                        // place pos data in buffer
+                    }
+                }
+
+                // store
+                let mux = graphics_service.read().unwrap();
+                let data = mux.write_next();
+                let mut data_guard = data.lock().unwrap();
+                let _ = mem::replace(&mut *data_guard, ());
+            });
+
+        // register default entities
         world
             .entity()
             .set(Position { x: 10.0, y: 20.0 })
             .set(Velocity { dx: 0.0, dy: 2.0 });
+
+        world
+            .entity()
+            .set(Position { x: 10.0, y: 20.0 })
+            .set(Velocity { dx: 0.0, dy: -2.0 });
 
 
         // set tick rate
@@ -146,4 +174,55 @@ impl Service for ExampleService {
     }
 
     fn post_init(&mut self) {}
+}
+
+trait Construct {
+    fn new() -> Self;
+}
+
+impl Construct for () {
+    fn new() -> Self {
+        ()
+    }
+}
+
+#[derive(Debug)]
+struct GraphicsService<T> {
+    current_write: AtomicBool,
+    data1: Arc<Mutex<T>>,
+    data2: Arc<Mutex<T>>,
+}
+
+
+impl<T> GraphicsService<T> {
+    pub fn read_next(&self) -> Arc<Mutex<T>> {
+        let selector = self.current_write.fetch_not(std::sync::atomic::Ordering::AcqRel);
+        match selector {
+            true => self.data1.clone(),
+            false => self.data2.clone(),
+        }
+    }
+
+    pub fn write_next(&self) -> Arc<Mutex<T>> {
+        let selector = self.current_write.load(std::sync::atomic::Ordering::Acquire);
+        match selector {
+            true => self.data2.clone(),
+            false => self.data1.clone(),
+        }
+    }
+
+
+}
+
+impl<T> Service for GraphicsService<T>
+where T: Debug + Send + Construct + 'static {
+    fn init() -> Self where Self: Sized {
+        Self {
+            current_write: AtomicBool::new(true),
+            data1: Arc::new(Mutex::new(T::new())),
+            data2: Arc::new(Mutex::new(T::new())),
+        }
+    }
+
+    fn post_init(&mut self) { }
 }
